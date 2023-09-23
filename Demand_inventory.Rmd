@@ -1,0 +1,175 @@
+---
+title: "Forecast in Demand Inventory (2)"
+author: "Lộc"
+date: "2023-09-20"
+output: 
+  html_document:
+    code_folding: hide
+    theme: cerulean
+    toc: true
+    toc_float: true
+---
+In the previous section, we have learned about how the inventory management operate in the warehouse, knew how to calculate the opening and ending inventory. So in this section, we will pratice to forecast the demand consumption in the future.
+If you want to know detail analyst, you can visit this page [Demand Forecasting: Application of ARIMA model with R](https://medium.com/@houssamAkk/demand-forecasting-application-of-arima-model-1f2a55f71b46) by Houssam Akkouche author.
+## Call packages:
+```{r}
+#Call packages:
+pacman::p_load(rio,
+               here,
+               janitor,
+               tidyverse,
+               dplyr,
+               magrittr,
+               lubridate,
+               stringr
+               )
+```
+## 1.Import data:
+```{r include = F}
+#Import file:
+product_demand<-import("C:\\Users\\locca\\Downloads\\Historical Product Demand.csv")
+```
+
+You can download this file from this page [Historical Product Demand](https://www.kaggle.com/datasets/felixzhao/productdemandforecasting)
+
+# Then you can import them by:
+# Step 1: file.choose() to select the address of file
+# Step 2: rio::import("the address of file")
+# Step 3: naniar::gg_miss_var() to check the missing value of dataframe
+
+```{r}
+#Change to suitable class (I change the name dataset to product_demand to shortly write)
+product_demand <-product_demand %>% 
+    mutate(Date = as.Date(Date,format = "%Y/%m/%d"),
+           Product_Category = as.factor(Product_Category))
+
+product_demand$Order_Demand <- 
+  gsub("[(]", "-", product_demand$Order_Demand)
+product_demand$Order_Demand <- 
+  gsub("[)]", "", product_demand$Order_Demand)
+product_demand$Order_Demand <- 
+  as.numeric(product_demand$Order_Demand)
+
+#File product_demand, you can download it from the previous section. Because it's heavy so I cannot add it into this report.
+product_demand <-product_demand %>%
+  mutate(Month = month(Date),
+         Year = year(Date),
+         Week_day = wday(Date)) %>% 
+  filter(Year %in% c(2016:2012))
+
+df1<-product_demand %>% 
+  group_by(Year,Month) %>% 
+  summarise(month_demand = sum(Order_Demand,na.rm = T))
+df1$Month_Year = as.Date(str_c(df1$Year,df1$Month,"1",sep = "-"))
+library("TTR")
+#First we will divde the data into training data and testing data in 70-30:
+#Create ts object for month demand variable:
+training_df<-df1[df1$Month_Year < as.Date("2015-03-22"),]
+testing_df <-df1[df1$Month_Year >= as.Date("2015-03-22"),]
+
+demand_training<-ts(training_df$month_demand,
+                      frequency = 12,
+                      start = c(2012,1))
+demand_full<-ts(df1$month_demand,
+                frequency = 12,
+                      start = c(2012,1))
+
+```
+
+```{r}
+#Decompose the time object into 3 components: trend, seasonal, random
+p<-decompose(demand_training)
+
+plot(p)
+```
+
+## 2.PACF and ACF analyst:
+```{r}
+#First we will calculate the different in demand product monthly:
+#Check stationary assumption:
+m = c(1:3)
+lapply(m, function(x) {
+         a<-diff(log(demand_training), lag = x)
+         tseries::adf.test(a)$p.value}
+       ) #p<0,05 is accepted
+#So the value accepted is lag 1 or 2. It suggested that we should use 1 lag or 2 lag time series of diff(log(demand_components))
+```
+
+```{r}
+#Rename of two time series:
+ts1<-diff(log(demand_training),1)
+ts2<-diff(log(demand_training),2)
+#Plot value ACF for 2 series:
+library(forecast)
+p1<-Acf(ts1,plot =F)
+p2<-Acf(ts2,plot =F)
+cowplot::plot_grid(autoplot(p1), autoplot(p2), nrow = 2)
+
+#Plot value PACF for 2 series
+p3<-Pacf(ts1,plot =F)
+p4<-Pacf(ts2,plot =F)
+cowplot::plot_grid(autoplot(p3), autoplot(p4), nrow = 2)
+```
+
+
+## 3.Forecast by ARIMA model approach:
+### 3.1.Select the best model:
+```{r}
+#Look the graphs, we choose optimal value for arima (p,d,q) model is (3,1,2) or we will use function in forecast package to find suitable model.
+model<-auto.arima(ts1,trace = T) #We will choose model (0,1,1)
+```
+### 3.2.Compare the training model to test value:
+```{r}
+#Create model for training data:
+model_training<-Arima(demand_training, 
+             order = c(model[["arma"]][c(1,2,6)]),
+             seasonal = list(order = c(model[["arma"]][c(3,4,7)]),period = model[["arma"]][5]), 
+             include.drift = FALSE)
+#Forecast by training model:
+training_forecast<-forecast(model_training,h = 21)
+
+#Calculate RMSE:
+accuracy(training_forecast,testing_df$month_demand)
+
+#Use chart for presenting the differents:
+plot(training_forecast,
+      main = "Model ARIMA(2,0,0)(1,0,0)[12]",
+      xlab = "Time",
+      ylab = "Order Demand")
+lines(demand_full, 
+      col = "red",
+      lwd = "2")
+legend("topleft",
+       legend = c("Actual","Forecast"),
+       col = c("red","blue"),
+       box.lty = 0,
+       lty = 1,
+       cex = 1.5,
+       lwd = 2)
+```
+
+This plot above show that all the predicted value is surrounds the actual value in 95%.
+
+So we will choose model 'ARIMA(2,0,0)(1,1,0)[12]' to predict the future value for demand_full object.
+  
+```{r}
+#Modeling demand product by arima model:
+fit <- Arima(demand_full, 
+             order = c(model[["arma"]][c(1,2,6)]),
+             seasonal = list(order = c(model[["arma"]][c(3,4,7)]),period = model[["arma"]][5]), 
+             include.drift = FALSE)
+summary(fit)
+```
+
+### 3.2.Forecast the demand in future:
+```{r}
+#Predicting for 18 months with 99.5% range:
+predict_fit<-forecast:::forecast.Arima(fit, h = 18, level = c(99.5))
+#Print predicted value:
+predict_fit
+#Plot the forecast value
+forecast:::plot.forecast(predict_fit, 
+     xlab ="Time",
+     ylab = "Order demand in Warehouse")
+```
+

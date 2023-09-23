@@ -1,0 +1,220 @@
+---
+title: "Forecast in Demand Inventory (1)"
+date: "2023-09-06"
+output: 
+  html_document:
+    code_folding: hide
+    theme: cerulean
+    toc: true
+    toc_float: true
+---
+
+## 1.Call packages:
+```{r}
+#Call packages:
+pacman::p_load(rio,
+               here,
+               janitor,
+               tidyverse,
+               dplyr,
+               magrittr,
+               lubridate,
+               stringr
+               )
+```
+In this report, I would like to implement 2 problem: first is plot a lot of graph for knowing some information about this data and create the function for computing the opening and ending inventory. Second, forecasting the demand goods in the future by ARIMA model. 
+We will complete this in 2 lesson. The original report that I have is [Building a Forecasting Framework for Supply Chain with R](https://frank-corrigan.com/2019/10/02/building-a-forecasting-framework-for-supply-chain-with-r/) by Frank Corrigan author.
+
+## 2.Prepare data:
+### 2.1.Download and prepare data:
+```{r include = F,warning =F}
+#Import file:
+product_demand<-import("C:\\Users\\locca\\Downloads\\Historical Product Demand.csv")
+
+#Check class of each variable:
+str(product_demand)
+
+#Check missing value:
+naniar::gg_miss_var(product_demand)
+```
+
+### 2.2.Cleaning up the data:
+This one, I completely copy from the original report so I really don't know why have to do it. But it works so do not care too much about it@@.
+```{r}
+#Change to suitable class (I change the name dataset to product_demand to shortly write)
+product_demand <-product_demand %>% 
+    mutate(Date = as.Date(Date,format = "%Y/%m/%d"),
+           Product_Category = as.factor(Product_Category))
+
+product_demand$Order_Demand <- 
+  gsub("[(]", "-", product_demand$Order_Demand)
+product_demand$Order_Demand <- 
+  gsub("[)]", "", product_demand$Order_Demand)
+product_demand$Order_Demand <- 
+  as.numeric(product_demand$Order_Demand)
+```
+There are 2160 different products and 4 warehouses.
+```{r}
+#Some informations of this dataset:
+length(unique(product_demand$Product_Code)) 
+length(unique(product_demand$Warehouse)) 
+```
+Firstly, we want to know about the consumption trending during 5 years from 2012 to 2016 in all warehouse and in individual warehouse. Then we combine two plot in 1 graph by function 'cowplot::plot_grid'
+```{r}
+#Plot the demand of each month:
+#Prepare data by creating new ggplot object:
+product_demand <-product_demand %>%
+  mutate(Month = month(Date),
+         Year = year(Date),
+         Week_day = wday(Date)) %>% 
+  filter(Year %in% c(2016:2012))
+
+df1<-product_demand %>% 
+  group_by(Year,Month) %>% 
+  summarise(month_demand = sum(Order_Demand,na.rm = T))
+
+df1$Month_Year = as.Date(str_c(df1$Year,df1$Month,"1",sep = "-"))
+
+#Plot demand line base on month:
+p1<-ggplot(data = df1,
+       mapping = aes(x = Month_Year, 
+                     y = month_demand))+
+  geom_line()+
+  labs(x="Month_Year",y="Total Orders",title="Total Orders by Month") +
+  theme_bw() +
+  geom_smooth(size=0.2,se=FALSE,color='red')
+
+#Plot histogram of demand product in each warehouse:
+df2<-product_demand %>% 
+  group_by(Year,Month,Warehouse) %>% 
+  summarise(Month_Demand = sum(Order_Demand,na.rm = T))
+df2$Month_Year = as.Date(str_c(df2$Year,df2$Month,"1",sep = "-"))
+
+p2<-ggplot(data = df2,
+       mapping = aes(x = Month_Year,
+                     y = Month_Demand))+
+  geom_line()+
+  theme_bw()+
+  facet_grid(~Warehouse)+
+  labs(x = "Daily demand order", 
+       y = "Names of Warehouse",
+       title = "Plot of daily demand in each warehouse")
+
+#Combine two graphs:
+cowplot::plot_grid(p1, p2,
+                  # 1 column and two rows - stacked on top of each other
+                   ncol = 1,
+                   nrow = 2,
+                   # top plot is 2/3 as tall as second
+                   rel_heights = c(2, 3))
+```
+## 3.Find the weekday that consumer go shopping most:
+Secondly, we want to know which weekday the customer do the most consumption. 
+```{r}
+#We will calculate the total demand in the week and compare between weekday in the week:
+#First, counting total demand:
+product_demand$Month_Year = as.Date(str_c(product_demand$Year,product_demand$Month,"1",sep = "-"))
+
+Demand_weekday <-product_demand %>%
+  drop_na(Date) %>%
+  group_by(Month_Year,Week_day) %>% 
+  summarise(Daily_demand = sum(Order_Demand)) %>% 
+  mutate(pct = Daily_demand/sum(Daily_demand))
+
+#Then, we will plot the daily demand weekday for 5 years to compare each weekday which has the most demand:
+ggplot(data = Demand_weekday,
+       mapping = aes(x = as.factor(Week_day),
+                     y = pct,
+                     group = Month_Year))+
+  geom_line()+
+  labs(x = "Week day",
+       y = "Percentage of daily demand")+
+  theme_bw()
+
+#Or comparing each years to find different:
+ggplot(data = Demand_weekday,
+       mapping = aes(x = as.factor(Week_day),
+                     y = pct,
+                     group = Month_Year))+
+  geom_line()+
+  labs(x = "Week day",
+       y = "Percentage of daily demand")+
+  theme_bw()+
+  facet_wrap(~year(Month_Year))
+```
+
+## 4.Design Reorder quantity planning for warehouse:
+Finally, we create function for computing the opening and ending inventory. There are a lot of variables that represents the warehouse indexes we should calculate before coding the function.
+The approach is based on the EOQ model. You can read this [Economic order quantity](https://en.wikipedia.org/wiki/Economic_order_quantity) to improve your knowledge about inventory operation in supply chain
+```{r}
+#Some input:
+df3<-product_demand %>% 
+    group_by(Date) %>% 
+    summarise(Daily_order = sum(Order_Demand))
+
+MO = mean(product_demand$Order_Demand) #Mean units of each order 
+DD = sum(df3$Daily_order)/as.numeric(max(df3$Date)-min(df3$Date)) #Average daily demand units 
+RC = c(3,5) #Number of days for the replenishment activities. Minimun lead time is 3 and maximun is 5 days.
+SS =  max(df3$Daily_order)*max(RC) - mean(RC)*DD #Safety stock in the warehouse.
+ROP = mean(DD*RC + SS) #Re-order point. If opening inventory in warehouse decrease to SS means we needs to place new order.
+O <- df3$Daily_order #Daily order units.
+
+```
+```{r}
+#Create variables by repeat NA values into vector:
+I_start <- rep(NA, 1682) #There are 1681 unique date from 2012  to 2016 and plus 1 represent to the first opening inventory/safety stock.
+I_end <- rep(NA, 1681)
+stockOut <- rep(NA, 1681)
+SP <- rep(NA,1681) #Supply order units to fullfil the safety stock.
+
+#Assign first value for start opening inventory and start date:
+I_start[1] <- 1/4*SS
+
+for (t in 1:1681)
+{
+  if(I_start[t] < O[t])
+  {
+    stockOut[t] <- 1
+    I_end[t] <- I_start[t] - O[t]
+    I_start[t+1] <- SS
+    SP[t] <- SS - I_end[t]
+    
+  }else{
+    stockOut[t] <- 0
+    I_end[t] <- I_start[t] - O[t]
+    I_start[t+1] <- I_end[t]
+    SP[t] <- 0
+  }
+}
+
+#Add first value:
+O<-c(0,O)
+SP<-c(0,SP)
+I_end<-c(NA,I_end)
+stockOut<-c(NA,stockOut)
+D <- c(as.Date("2011-12-31"),df3$Date)
+
+#Create dataframe for these variables:
+inventory_df<-data.frame(D,O,I_end,I_start,stockOut,SP)
+colnames(inventory_df)<-c("Date","Daily_order","Opening_inventory","Start_inventory","Stock_out","Supply_order")
+```
+
+Then we plot to compare the opening and ending inventory.
+```{r}
+#Plot the different between inventory and demand order:
+df4<-inventory_df %>% 
+  select(Date,Daily_order,Opening_inventory,Supply_order)
+
+df4<-df4 %>% pivot_longer(cols = c("Daily_order","Opening_inventory"),
+                          names_to = "Goods",
+                          values_to = "Units")
+
+
+#Plot to compare the daily order and opening inventory:
+p3<-ggplot(data = df4,
+       aes(x = Date, y =Units, colour = Goods))+
+  geom_line() 
+p3<-p3 %>% plotly::ggplotly()
+p3
+```
+

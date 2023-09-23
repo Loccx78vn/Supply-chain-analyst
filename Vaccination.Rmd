@@ -1,0 +1,159 @@
+---
+title: "Vaccination program"
+author: "Lộc"
+date: "2023-09-16"
+output: 
+  html_document:
+    code_folding: hide
+    theme: cerulean
+    toc: true
+    toc_float: true
+params:
+  date: 20/09/2023
+---
+## 1.Gọi các packages trong R:
+Nếu bạn không có trong thư viện R thì hãy tải xuống bằng hàm `install.package("names of package")`.
+```{r setup}
+knitr::opts_chunk$set(echo = TRUE)
+pacman::p_load(rio,
+               here,
+               janitor,
+               tidyverse,
+               dplyr,
+               magrittr,
+               lubridate,
+               stringr,
+               viridis
+               )
+```
+
+## 2.Xây dựng hàm để lập kế hoạch phân phối hàng hóa:
+Gỉa sử ta cần nhập 500000 vaccine vào Warehouse để tiêm cho 500000 người ở địa phương. Mỗi lần chỉ nhập được 10000 vaccine và cần 6 ngày mới vận chuyển được tới kho. Vậy hoạt động quản lí tồn kho sẽ diễn ra như thể nào. Ta cần trả lời các câu hỏi như:
+- Số lượng vaccine dư thừa là bao nhiêu.
+- Có ngày nào người dân phải chờ để tiêm hay không?
+- Bao nhiêu ngày bị stock out?
+
+```{r error = F, warning = FALSE}
+set.seed(123)
+Q = 10000 #1000 vaccine will be delivered after 6 days.
+N = 500000 #There are 500000 Pfizer vaccine
+D = 6 #6 days for the vaccine is delivered from DC to Warehouse in hospitals.
+P = rbeta(500,4,12)*4000 #Simulate the numbers of people come to each day equal the numbers of vaccine is daily used
+
+#Function for calculate ending and opening inventory for each day:
+#Input:
+Order = P
+I_start <- rep(NA,501 ) 
+stockOut <- rep(NA, 500)
+SP <- rep (NA, 500)
+I_end <- rep(NA,500)
+
+I_start[1] <- 0
+Date <- seq(as.Date("2023-09-18"),as.Date("2025-01-30"),1)
+
+#Function:
+#Schedule the plan for supply the vaccine:
+#Because we supply 10000 vaccine in 1 trip for 6 days so we just need 300 days to complete the delivery of 500000 vaccine into warehouse. All next day, SP will be zero.
+n = 1
+SP = 0
+while(sum(SP)%/%1 <= 500000){
+      SP[n] <-ifelse(as.numeric(difftime(Date[n],Date[1]))%%6 == 0,
+                     10000,
+                     0)
+      
+      #update expression:
+      n = n + 1 
+    }
+SP<-c(SP,rep(0,length(Order)-length(SP)))
+
+#
+for (t in 1:500)
+{
+  if(I_start[t] < Order[t])
+  {
+    stockOut[t] <- 1
+    I_end[t] <- I_start[t] - Order[t]
+    I_start[t+1]<-I_end[t]+SP[t]
+
+  }else{
+    stockOut[t] <- 0
+    I_end[t] <- I_start[t] - Order[t]
+    I_start[t+1] <- I_end[t]+SP[t]}
+  
+  inventory_df<-data.frame(Date[-1],Order,I_start[-1],I_end,SP,stockOut)
+  }
+DT::datatable(inventory_df,
+              filter = "top",
+              option = list(pagelength = 5,
+                            scrollX = T))
+```
+
+## 3.Xây dựng hàm để simulate mô hình tiêm chích:
+Mỗi ngày sẽ có n người đến để tiêm chích (P là phân phối số người đến tiêm trong 500 ngày). Ý tưởng để xây dựng hàm là làm 2 vòng lặp:\
+-1 vòng để tính các chỉ số về service time, waiting time, arrival time, leaving time cho tất cả người đến trong 1 ngày bất kì. -1 vòng để tính lặp lại trong 500 ngày. Và mỗi ngày thì số người đến khác nhau.
+
+```{r}
+
+mean_waiting_f<-function(n){
+  #Assumption for vaccinated operation:
+  #service time follows a normal distribution with a mean of 5  minutes and standard deviation of 1 minutes.
+  #the inter-arrival time of customers follow an exponential distribution with a rate of 1 customer per minute.
+  #set the distribution for arrival time and service time:
+    arrival_time <- cumsum(rexp(n%/%1, 1))
+    service_time <- rnorm(n%/%1, 5, 1)
+  #set the range value for waiting time and leaving time:
+    waiting_time <- rep(NA, n%/%1)
+    leaving_time <- rep(NA, n%/%1)
+  
+for(t in c(2:n)){
+  #First customer come so waiting time will be zero  
+    waiting_time[1] <- 0
+    leaving_time[1] <- arrival_time[1] + waiting_time[1] + service_time[1]
+  #Calculate for next time:
+    waiting_time[t] <- max(0,leaving_time[t-1] - arrival_time[t])
+    leaving_time[t] <- waiting_time[t] + arrival_time[t] + service_time[t] 
+}
+    
+    m <-data.frame(arrival_time,waiting_time,service_time,leaving_time)
+    
+}
+library(purrr)
+df<- map(.x = P,
+         .f = ~mean_waiting_f(.x))
+
+#Plot mean delay for 500 days:
+df1<-map_dfr(.x = 1:500,
+             .f = ~data.frame(unique(df[[.x]] %>% 
+                           mutate(across(.cols = c("arrival_time","waiting_time","service_time","leaving_time"),
+                             .fns = mean)))
+             )
+)
+#Plot the results:
+DT::datatable(df1,
+              filter = "top",
+              option = list(pagelength = 5,
+                            scrollX = T))
+```
+
+## 4.Kết quả simulation:
+Bạn có thể sử dụng các biểu đồ khác để trình bày kết quả của mình thông qua [R Gallery](https://r-graph-gallery.com/index.html) hoàn toàn miễn phí và dể hiểu.
+```{r warning = F, message = F}
+#Plot the line represent the service time, waiting time, arrival time and leaving time:
+library(ggridges)
+library(viridis)
+df2<-df1 %>% 
+  pivot_longer(cols = c("arrival_time","waiting_time","service_time","leaving_time"),
+               names_to = "Type_of_time",
+               values_to = "Minutes")
+               
+ggplot(data = df2, 
+       mapping = aes(x = Minutes, 
+                     y = as.factor(Type_of_time),
+                     fill = Type_of_time
+                     ))+
+  geom_density_ridges() +
+  theme_ridges() + 
+  theme(legend.position = "none")+
+  labs(y = "Type of using time", x = "Minutes",
+       title = "The results of simulating customer service usage time")
+```
