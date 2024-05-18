@@ -1,3 +1,107 @@
+RandomBreaks <- function(num_agents, n, min_tour, max_tour_visits = 5){
+
+
+  if(num_agents * max_tour_visits < n){
+    stop('Number of points exceeds capacity. Stopping optimizer...')
+  }
+
+  if(min_tour < 2){
+    stop('An agent cannot have less than 2 entries in the tour solution. Two entries signify that the agent did not make any visits')
+  }
+
+  if(min_tour > max_tour_visits){
+    stop("The minimum tour length selected is higher than the max tour length. Please correct your inputs.")
+  }
+
+  min_num_required <-  ceiling(n / max_tour_visits)
+
+  if(num_agents > 2){
+    if(num_agents * max_tour_visits <= n & num_agents * max_tour_visits >= n - max_tour_visits){
+      brks <- round(seq(from = max_tour_visits, to = n - max_tour_visits, length.out = num_agents - 1))
+
+    } else{
+      num_brks <- num_agents
+      M        <- zoo::rollapply(data = seq(from = 1, to = n, length.out = num_agents), 2, by = 1, c)
+      for (i in 1:nrow(M)) {M[i, 1] <- M[i, 1] + 1}
+
+      brks <- c()
+      for (i in 1:nrow(M)) {
+        brks[i] <- round(runif(n = 1, min = M[i, 1], max = M[i, 2]))
+      }
+
+      for (i in 1:(length(brks) - 1)) {
+
+        if(abs(brks[i + 1] - brks[i]) > max_tour_visits){
+          spread <- brks[i + 1] - brks[i] - max_tour_visits
+          brks[i + 1] <- brks[i + 1] - spread
+
+        }
+      }
+
+
+      L <- length(brks)
+      if(n - brks[L] > max_tour_visits &  brks[L] - brks[L-1] < max_tour_visits){
+        d1 <- brks[L] - brks[L - 1]
+        d2 <- n - brks[L]
+        brks[L] <- brks[L] + (d2 - d1)
+
+      }
+
+      if(brks[L] == n){
+        brks[L] <- floor((brks[L - 1] + n)/2)
+      }
+
+    }
+  } else if(num_agents == 2){
+
+    brks <- max_tour_visits - sample(x = 0:2, size = 1)
+
+  }
+
+  return(brks[!is.na(brks)])
+
+}
+
+
+CalculateRange <- function(point_break, n){
+  flag  <- 1
+  range <- matrix(data = 0, nrow = length(point_break) + 1, ncol = 2)
+
+  for (i in 1:length(point_break)){
+    if (flag == 1 & point_break[i]>1){
+        range[i, ] <- c(1, point_break[i])
+        flag <- 0
+    } else if (flag == 1){
+        range[i, ] <- c(1, 0)
+    } else if (point_break[i] <= point_break[i - 1]){
+        range[i, ] <- c(point_break[i - 1], point_break[i])
+    } else if (i < length(point_break)){
+        range[i, ] <- c(point_break[i - 1] + 1, point_break[i])
+    } else {
+        range[i, ] <- c(point_break[i - 1] + 1, point_break[i])
+    }
+  }
+
+  if (point_break[length(point_break)] < n && point_break[length(point_break)]!=1){
+      range[i + 1, ] <- c(point_break[length(range)] + 1, n)
+  } else if (point_break[length(point_break)]<n && point_break[length(point_break)]==1){
+      range[i + 1,] <- c(point_break[length(range)], n)
+  } else {
+      range[i + 1,] <- c(point_break[length(range)], n - 1)
+  }
+
+  if(range[i, 2] == 1){
+      range[i + 1, 1] <- 1
+  } else if(range[i, 2] == n){
+      range[i + 1, 1] <- n
+  } else {
+      range[i + 1, 1] <- range[i, 2] + 1
+  }
+
+  return(range)
+}
+
+
 CalculateTourLength <- function(tour = NULL,
                                 dist_mat = NULL,
                                 dist_mat0 = NULL,
