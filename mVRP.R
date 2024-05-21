@@ -1,3 +1,43 @@
+CalculateRange <- function(point_break, n){
+  flag  <- 1
+  range <- matrix(data = 0, nrow = length(point_break) + 1, ncol = 2)
+
+  for (i in 1:length(point_break)){
+    if (flag == 1 & point_break[i]>1){
+        range[i, ] <- c(1, point_break[i])
+        flag <- 0
+    } else if (flag == 1){
+        range[i, ] <- c(1, 0)
+    } else if (point_break[i] <= point_break[i - 1]){
+        range[i, ] <- c(point_break[i - 1], point_break[i])
+    } else if (i < length(point_break)){
+        range[i, ] <- c(point_break[i - 1] + 1, point_break[i])
+    } else {
+        range[i, ] <- c(point_break[i - 1] + 1, point_break[i])
+    }
+  }
+
+  if (point_break[length(point_break)] < n && point_break[length(point_break)]!=1){
+      range[i + 1, ] <- c(point_break[length(range)] + 1, n)
+  } else if (point_break[length(point_break)]<n && point_break[length(point_break)]==1){
+      range[i + 1,] <- c(point_break[length(range)], n)
+  } else {
+      range[i + 1,] <- c(point_break[length(range)], n - 1)
+  }
+
+  if(range[i, 2] == 1){
+      range[i + 1, 1] <- 1
+  } else if(range[i, 2] == n){
+      range[i + 1, 1] <- n
+  } else {
+      range[i + 1, 1] <- range[i, 2] + 1
+  }
+
+  return(range)
+}
+
+
+
 RandomBreaks <- function(num_agents, n, min_tour, max_tour_visits = 5){
 
 
@@ -63,45 +103,6 @@ RandomBreaks <- function(num_agents, n, min_tour, max_tour_visits = 5){
 }
 
 
-CalculateRange <- function(point_break, n){
-  flag  <- 1
-  range <- matrix(data = 0, nrow = length(point_break) + 1, ncol = 2)
-
-  for (i in 1:length(point_break)){
-    if (flag == 1 & point_break[i]>1){
-        range[i, ] <- c(1, point_break[i])
-        flag <- 0
-    } else if (flag == 1){
-        range[i, ] <- c(1, 0)
-    } else if (point_break[i] <= point_break[i - 1]){
-        range[i, ] <- c(point_break[i - 1], point_break[i])
-    } else if (i < length(point_break)){
-        range[i, ] <- c(point_break[i - 1] + 1, point_break[i])
-    } else {
-        range[i, ] <- c(point_break[i - 1] + 1, point_break[i])
-    }
-  }
-
-  if (point_break[length(point_break)] < n && point_break[length(point_break)]!=1){
-      range[i + 1, ] <- c(point_break[length(range)] + 1, n)
-  } else if (point_break[length(point_break)]<n && point_break[length(point_break)]==1){
-      range[i + 1,] <- c(point_break[length(range)], n)
-  } else {
-      range[i + 1,] <- c(point_break[length(range)], n - 1)
-  }
-
-  if(range[i, 2] == 1){
-      range[i + 1, 1] <- 1
-  } else if(range[i, 2] == n){
-      range[i + 1, 1] <- n
-  } else {
-      range[i + 1, 1] <- range[i, 2] + 1
-  }
-
-  return(range)
-}
-
-
 CalculateTourLength <- function(tour = NULL,
                                 dist_mat = NULL,
                                 dist_mat0 = NULL,
@@ -128,6 +129,7 @@ CalculateTourLength <- function(tour = NULL,
 
   return(VehicleTourLength)
 }
+
 
 VehicleRouting  <- function(visit_points = NULL,
                             num_agents = NULL,
@@ -476,4 +478,3 @@ VehicleRouting  <- function(visit_points = NULL,
        dist_history = as.numeric(dist_history),
        tour_lengths = tour_lengths)
 }
-
