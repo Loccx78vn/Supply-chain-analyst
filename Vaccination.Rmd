@@ -28,7 +28,8 @@ pacman::p_load(rio,
 ```
 
 ## 2.Xây dựng hàm để lập kế hoạch phân phối hàng hóa:
-Gỉa sử ta cần nhập 500000 vaccine vào Warehouse để tiêm cho 500000 người ở địa phương. Mỗi lần chỉ nhập được 10000 vaccine và cần 6 ngày mới vận chuyển được tới kho. Vậy hoạt động quản lí tồn kho sẽ diễn ra như thể nào. Ta cần trả lời các câu hỏi như:
+Gỉa sử ta cần nhập 500000 vaccine vào Warehouse để tiêm cho 500000 người ở địa phương. Mỗi lần chỉ nhập được 10000 vaccine và cần 6 ngày mới vận chuyển được tới kho. Vậy hoạt động quản lí tồn kho sẽ diễn ra như thể nào. Ta cần trả lời các câu hỏi như: 
+
 - Số lượng vaccine dư thừa là bao nhiêu.
 - Có ngày nào người dân phải chờ để tiêm hay không?
 - Bao nhiêu ngày bị stock out?

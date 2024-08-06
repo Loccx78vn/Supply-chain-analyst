@@ -1,0 +1,472 @@
+---
+title: "Supply Chain Management"
+author: "Lộc"
+date: "2024-05-16"
+output:
+  html_document:
+    theme: journal
+    toc: yes
+    number_sections: yes
+    toc_float:
+      collapsed: yes
+    toc-location: left
+    code_folding: hide
+---
+
+# Introduce the problems:
+
+The field of Logistics and Supply Chain Management has been a popular topic for the past 10 years and continues to be relevant today. This trend is due to the ongoing evolution of global trade. Nowadays, businesses are not only focused on their market share in host country but also seek to expand into international markets. For example, some of the largest ports in the world, such as Busan port in Korea, Rotterdam port in Belgium, Singapore port, and Shanghai port in China, witness an average trade of 20-30 million TEU of goods annually. This is equivalent to about 20 million TEU multiplied by 2300, which equals 46000000 meter tons of goods. These staggering numbers reflect the bustling nature of international operations.for 10 years ago up to now. Main reason for this uptrend is the progressive evolution in global trading in the world. Nowadays, businesses not only cares about their market share in host country but also reach out to the international market. In a lot of biggest port in the world such as Busan port in Korea, Rotterdam port in Belgium, Singapore port or Shanghai port in China, there are an average of 20-30 millions TEU of goods are traded yearly or in other means eqaul to 20*10\^6*2300 = 46000000 meter tons of goods. That's really big number reflect the bustle of international operations.
+
+![Supply Chain Term](C:/Users/locca/Documents/Xuân%20Lộc/R/Project%20R/Supply-chain-analyst/Supply%20Chain%20term.jpg)
+
+# Definition of Supply Chain Management
+
+So supply chain management arised like a important term in internal operations in business. In my opinion, it's a term, not a position and the main function is optimizing all the activities such as managing the material flow from supplier, standardize the process of production and distribution to ensure product get to end-customer in the minimal time and enjoy best services as could as possible.Supply chain management has emerged as an important concept in the internal operations of businesses. In my opinion, it's a term rather than a position, and its main function is to optimize all activities. This includes managing the flow of materials from suppliers, standardizing the production process, and distribution to ensure that products reach the end customer in minimal time while providing the best possible service. The picture below illustrates some common activities in supply chain.
+
+![Supply Chain Operation](C:/Users/locca/Documents/Xuân%20Lộc/R/Project%20R/Supply-chain-analyst/Supply%20Chain%20Operation.jpg)
+
+So in this pratice, we will learn a lot of concepts of supply chain operations and how to implement in Rstudio.
+
+# Input:
+
+## Call packages:
+
+The frequency job when working with **Rmarkdown** is calling packages. You should list all packages is needed to call and then using this code: {pacman::p_load(*list_name_package*)}. Below is the illustration.
+
+```{r}
+#Call packages:
+pacman::p_load(rio,
+               here,
+               janitor,
+               tidyverse,
+               dplyr,
+               magrittr,
+               ggplot2,
+               purrr,
+               lubridate,
+               knitr,
+               shiny)
+```
+
+## Import dataset:
+
+```{r}
+library(readxl)
+procurement_data <- read_excel(r"(C:/Users/locca/Documents/Xuân Lộc/VILAS/Data_Chuong 7/procurement_data.xlsx)")
+```
+
+Firstly, install your data to R. I get it by my computer's address, so if you want to use it, you should download file by click button.
+
+```{r, include= FALSE}
+library(downloadthis)
+
+procurement_data %>%
+  download_this(
+    output_name = "procurement_data",
+    output_extension = ".csv",
+    button_label = "Download data",
+    button_type = "warning",
+    has_icon = TRUE,
+    icon = "fa fa-save"
+  )
+```
+
+I will copy the original dataset to other object. I think it's a good habit because sometime you code wrong leading to wrong result and you want to run again but the previous object have changed to new one so you should import the data again. It's not smooth.
+
+Adjusting to the standardize form to suitalbe for coding in R. Remember **df** have a column refer to datetime class, you should divide into 2 cols: date and time cols separately.
+
+```{r}
+## Copy into new object:
+df<-procurement_data 
+
+## Adjusting:
+df<-df %>% 
+  # standardize column name syntax
+    janitor::clean_names() %>% 
+    distinct() 
+
+df <- df %>% 
+  # break the datetime PO into date and time cols separately
+    mutate(po_date = as.Date(df$po_date_time),
+           po_time = hms(format(df$po_date_time,"%H:%M:%S")))
+
+df$money<-runif(nrow(df),1000,10000)
+```
+
+In supply chain management, you typically encounter the task of ABC analysis to classify your major customers by comparing their revenue or purchase frequency. Next, I select the vendor's name and the amount of the purchase order and present it.
+
+```{r}
+m<-df %>% 
+  select(c(vendor_name,po_amount)) %>% 
+  group_by(vendor_name) %>% 
+  summarise(sum = sum(po_amount)) %>% 
+  ungroup()
+
+m<-within(m, {
+    cum_per <- cumsum(rev(sort(sum)))/sum(sum)
+    group <- ifelse(cum_per > 0.91, "A",
+           ifelse(cum_per < 0.81, "B", "C"))
+})
+
+```
+
+Now we have classified all the companies on our list, but we need to be prepared for any future collaborations. When considering collab with a new company, we will need to know which classification it falls under in order to decide whether to sign a long-term contract. In this section, I'd like to introduce the Random Forests method, a machine learning algorithm that combines the outputs of multiple decision trees to produce a single result. For more details, you can refer to this page: [Random Forest](https://www.gormanalysis.com/blog/decision-trees-in-r-using-rpart/)u0'\`bnj
+
+In R, we can easily implement this using the following code. It's important to note a few things:
+
+-   The rpart function has default parameters that can limit the growth of the tree, so we should consider adjusting them. For example:
+    -   The argument "minsplit" represents the minimum number of observations required in a node for a split to be attempted.
+
+    -   The argument "minbucket" represents the minimum number of observations in any terminal node. We should observe the impact of overriding these parameters.
+-   Package {parttree} maybe not avaliable in your Rstudio version. You can update your version or directly install from online source by function `remote::install_github("https://github.com/grantmcdermott/parttree")`
+
+```{r}
+df1<-left_join(m %>% select(c(vendor_name, group)),
+               df,
+               by = "vendor_name")
+
+library(rpart)
+library(parttree)
+tree<-rpart(po_amount ~ po_saving_amount + money, data = df1)
+
+ggplot(data = df1,
+       aes(x = po_saving_amount,
+           y = money))+
+  geom_parttree(data = tree,
+                aes(fill = po_amount),
+                alpha = 0.3)+
+  geom_point(aes(col = po_amount))+
+  theme_minimal() +
+  scale_fill_distiller(
+    limits = range(df1$po_amount, na.rm = TRUE), 
+    aesthetics = c('colour', 'fill')
+  )
+
+```
+
+## Reactable table:
+
+But look again your output, the table is boring and the name of columns is abbreviation so it perhaps lead to viewer's misunderstanding. In order to familier with reader, R have package {reactable} help us to implement beautiful interactive dashboard.
+
+So before implementing, I will build a function to add reactivity in dashboard, which's similar with us that is filter button. I get this code from [Albert Rapp](https://albert-rapp.de/posts/18_connecting_reactable_ojs/18_connecting_reactable_ojs) and I think you gonna love his education posts about technical field.
+
+```{r}
+filter_fct <- function(values, name) {
+  tags$select(
+    tags$option(value = "", "All"),
+    purrr::map(unique(values), tags$option),
+    onchange = glue::glue(
+      "Reactable.setFilter(
+        'my-tbl', 
+        '{name}', 
+        event.target.value  // This is the value of the dropdown menu
+      )"
+    )
+  )
+}
+```
+
+```{r}
+library(reactable)
+library(sparkline)
+library(htmltools)
+reactable(
+  df %>% select(tran_status,
+                po_amount,
+                po_number,
+                money) %>% 
+    mutate(p = money/po_amount),
+  filterable = TRUE, 
+  minRows = 10,
+  searchable = TRUE,
+  compact = TRUE,
+  paginationType = "jump",    #"jump" to show a page jump
+  showPageSizeOptions = TRUE, 
+  defaultPageSize = 20,
+  columns = list(
+    po_number = colDef(name = "Number of PO",
+                       filterInput = filter_fct),
+    tran_status = colDef(name = "Status of transaction",
+                         footer = "Total",
+                         cell = function(value) {
+    if (value == "Fully Billed") "\u2714\ufe0f Yes" 
+        
+      else if (value == "Pending Bill"|value =="Pending Receipt"|value =="Closed") browsable(div(shiny::icon('warning', 
+                                     class = 'fas',  
+                                     style = 'color: orange'),"Warning"))  else  "\u274c No"}),
+    money = colDef(name = "Total amount",
+                   aggregate = "sum", 
+                   format = colFormat(currency = "USD")),
+    po_amount = colDef(name = "Quantity of PO",
+                       aggregate = "sum"),
+    p = colDef(name = "Percentage",
+               aggregate = "mean")
+  )
+)
+```
+
+```{r}
+library(ggiraph)
+df %>% 
+  mutate(tooltip_label = glue::glue('The total quantity PO is {po_amount}<br> with value is {round(money,2)}')) %>%
+  ggplot(aes(x = po_amount,
+              y = money,
+              col = tran_status)) +
+  geom_point_interactive(size = 4,
+                         aes(tooltip = tooltip_label)) +
+  theme_minimal()
+```
+
+```{r,warning=F}
+library(lubridate)
+df<-df %>% 
+  mutate(id = levels(receiving_department)[as.numeric(receiving_department)],
+         receiving_department = forcats::fct_reorder(receiving_department, po_amount)
+)
+
+p1<-df %>% 
+  mutate(Month = as.Date(paste(month(po_date),"01",year(po_date),sep = "/"),format = "%m/%d/%Y")) %>%
+  group_by(Month,receiving_department,id) %>% 
+  summarise(mean = mean(money)) %>% 
+  ggplot(aes(y = mean, 
+             x = Month,
+             col = receiving_department,
+             data_id = id))+
+    geom_line_interactive(linewidth = 2.5) +
+    geom_point_interactive(size = 4) +
+  labs(
+    x = "Month",
+    y = "The total revenue",
+    title = "The line chart of revenue monthly"
+  )+
+  theme(
+    text = element_text(
+      color = 'grey20'
+    ),
+    legend.position = 'none',
+    panel.grid.minor = element_blank(),
+    plot.title.position = 'plot'
+  ) 
+
+p2<-df %>% 
+  ggplot(aes(x = money, 
+             y = receiving_department, 
+             fill = receiving_department,
+             data_id = id))+
+    geom_boxplot_interactive(position = position_nudge(y = 0.25),
+                             width = 0.5)+
+    labs(
+    x = "The total revenue",
+    y = element_blank(),
+    title = "The KPI achieved by receiving_department")
+
+library(patchwork)
+girafe(ggobj = p1 +  plot_spacer() + p2,
+       options = list(
+         
+         opts_hover(css = ''),
+         opts_hover_inv(css = "opacity:0.1;"),
+         opts_sizing(rescale = FALSE) 
+         ),
+         height_svg = 10,
+         width_svg = 8
+       )
+```
+
+## GIS map:
+
+Prepare the data
+
+```{r}
+optimize<-read.csv(r"(C:\\Users\\locca\\Documents\\Xuân Lộc\\VILAS\\Final project\\Optimize_df.csv)")
+
+#New manufacter:
+new_manufacter= data.frame(
+  Customers = str_c(rep("Manufacter"),1:3),
+  Latitude =c(21.12256201,21.68421,20.34250),
+  Longitude = c(105.9150683,105.1940,106.2946),
+  Total.transactions = c(0,0,0),
+  Inventory = c(3000,2000,2500))
+
+route<-rbind(new_manufacter,
+             optimize%>% select(Customers,
+                                Longitude,
+                                Latitude,
+                                Total.transactions) %>% 
+               mutate(Inventory = round(runif(50,100,400)))
+)
+
+colnames(route)[4]<-"Demand"
+
+route$Node<-1:nrow(route)
+
+## Adding status:
+route$Status <- ifelse(route$Inventory - route$Demand > round(mean(route$Demand)/2),"Control",ifelse(route$Inventory- route$Demand  > 0,"Warning","Outstock" ))
+```
+
+Map of supply chain management
+
+```{r}
+#Prepare labels:
+labels<- paste0("<strong> Customers </strong> ",
+               route$Customers, "<br/> ",
+               "<strong> Inventory: </strong> ",
+               route$Inventory, "<br/> ",
+               "<strong> Demand </strong> ",
+               route$Demand, "<br/> ",
+               "<strong> Status </strong> ",
+               route$Status, "<br/> ") %>% 
+         lapply(htmltools::HTML)
+
+library(leaflet)
+logos <- awesomeIconList(
+  Customer = makeAwesomeIcon(
+    icon = "home",
+    iconColor = 'white',
+    markerColor = "blue"
+  ),
+  Manufacter = makeAwesomeIcon(
+    icon = "beer",
+    iconColor = 'gold',
+    markerColor = "black",
+    library = 'fa')
+)
+
+#Prepare the logos:
+route$ticker<-c(rep("Manufacter",3),
+                rep("Customer",
+                    nrow(route)-3))
+
+leaflet(data = route) %>% 
+  addTiles() %>%
+  addAwesomeMarkers(
+             lng = ~Longitude, 
+             lat = ~Latitude, 
+             label = ~labels,
+             icon = ~logos[ticker]) %>% 
+  setView(lng = mean(route$Longitude), 
+          lat = mean(route$Latitude),
+          zoom = 7) 
+```
+
+In the following code, I want to emphasize that the names of colors should have the first letter capitalized. For example, use "Red" instead of "red".
+
+You might be wondering why this is important, and I had the same question :)). After some online research, I found a response to a similar question about changing the color of markers in R using Leaflet [Leaflet change color of markers (R)](https://stackoverflow.com/questions/71726478/leaflet-change-color-of-markers-r). It was mentioned that capitalizing the first letter allows R to color the markers based on different factors. If you don't capitalize the first letter, R will color the markers randomly (I'm not sure why).
+
+```{r}
+#Setting the level of status
+route$Status<-fct_relevel(route$Status,"Control","Warning","Outstock")
+
+#Prepare palette for labeling control/warning/outstock:
+palPwr <- leaflet::colorFactor(palette = c("Lightgreen","Yellow","Red"), 
+                               domain = route$Status,
+                               ordered = T)
+
+#Prepare font for labeling
+font<-labelOptions(noHide = T, 
+                  direction = "bottom",
+                  style = list(
+        "font-family" = "serif",
+        "font-style" = "ilatic",
+        "box-shadow" = "3px 3px rgba(0,0,0,0.25)",
+        "font-size" = "10px",
+        "border-color" = "rgba(0,0,0,0.5)"
+      ))
+
+#Plot map with leaflet:
+library(leaflet.extras)
+leaflet(data = route) %>% 
+  addProviderTiles("CartoDB.Positron") %>% 
+  addCircleMarkers(radius = 10, # size of the dots
+                   fillOpacity = .7, # alpha of the dots
+                   stroke = FALSE, # no outline
+                   label = ~labels,
+                   lng = ~Longitude, 
+                   lat = ~Latitude, 
+                   color = ~palPwr(route$Status),
+                   clusterOptions = markerClusterOptions(),
+                   labelOptions = font) %>% 
+  leaflet::addLegend(position = "bottomright",
+            values = ~Status, # data frame column for legend
+            opacity = .7,
+            pal = palPwr, # palette declared earlier
+            title = "Status") %>%   # legend titleƯ
+  addResetMapButton()
+
+```
+
+Also for adjusting the base map, you can base on the preview of base map in [Leaflet preview](https://leaflet-extras.github.io/leaflet-providers/preview/) and copy the name of provider to paste in the argument {addProviderTitles}. For instance, I use provider = CartoDB.Positron.
+
+## Routing the vehicle's path for Supply Chain Plan:
+
+To set up the connection between RStudio and GitHub, you can use the `source()` function and assign the URL link of the GitHub repository that contains the R script you need. Remember to click on "Raw" to move to another page and then copy that URL.
+
+I found the original code in Viktor Plamenov's project on [GitLab](https://gitlab.com/vikplamenov/vrpoptima/-/tree/main/R?ref_type=heads). I found it convenient to use, so I copied and uploaded it to my private GitHub repository. You can use this URL for your work.
+
+The author created the package {vrpoptima} for easily install and using it. You can install by package {remote}, another details you can read in this link [remotes](https://remotes.r-lib.org/reference/install_gitlab.html)
+
+```{r}
+# Repo must in format username/repo[@ref].
+remotes::install_gitlab("vikplamenov/vrpoptima")
+
+```
+
+```{r}
+library(vrpoptima)
+colnames(optimize)[2:3]<-c("lat","lon")
+colnames(new_manufacter)[2:3]<-c("lat","lon")
+
+mat_optimize<-as.matrix(optimize[,2:3])
+
+dist_optimize<-as.matrix(geodist::geodist(mat_optimize,measure = 'haversine')/1000)
+
+mat_WH<-as.matrix(new_manufacter[,2:3])
+```
+
+```{r}
+#Optimizing:
+solution <-  VehicleRouting(visit_points = mat_optimize,
+                           num_agents = nrow(new_manufacter),
+                           agent_points = as.matrix(new_manufacter[,2:3]),
+                           cost_type = 2,
+                           max_tour_distance = 250000,
+                           max_tour_visits = 30,
+                           distance_metric = 'Geodesic',
+                           distance_matrix = dist_optimize,
+                           min_tour = 2,
+                           population_size = 96,
+                           num_generations = 1000, 
+                           distance_truncation = TRUE, 
+                           seed = 42)
+
+```
+
+```{r}
+#Plot the results:
+routes <- solution$routes
+rownames(routes) <- 1:nrow(routes)
+routes_list = RoutesDataPrep(routes = solution$routes, 
+                             visit_points = mat_optimize, 
+                             agent_points = as.matrix(new_manufacter[,2:3]))
+
+
+# Display all routes at the same time
+PlotToursCombined(solution = solution, 
+                  routes_list = routes_list,
+                  agent_locations = as.matrix(new_manufacter[,2:3]),
+                  orientation = "vertical")
+
+# Display all the inidividual routes on a single figure block
+PlotToursIndividual(solution = solution, 
+                    routes_list = routes_list)
+```
+
+# References:
+
+Thanks to all authors of documentaions below that help me implement this study.
+
+[leaflet](https://www.jla-data.net/eng/leaflet-in-r-tips-and-tricks/) by Jindra Lacko.
+
+[How to Use Git/GitHub with R](https://rfortherestofus.com/2021/02/how-to-use-git-github-with-r) by David Keyes.
+
+[Multiple Depot in VRP](https://gitlab.com/vikplamenov/vrpoptima/-/blob/main/R/VehicleRouting.R?ref_type=heads) by Viktor Plamenov.

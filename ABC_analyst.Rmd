@@ -1,0 +1,48 @@
+---
+title: "ABC_analyst"
+author: "Lộc"
+date: "2023-12-29"
+output: html_document
+---
+
+##Call packages:
+```{r}
+pacman::p_load(rio,
+               here,
+               janitor,
+               tidyverse,
+               dplyr,
+               magrittr,
+               ggplot2,
+               purrr,
+               lubridate,
+               mice,
+               plotly)
+```
+
+```{r}
+##import data:
+library(readxl)
+inventory <- read.csv(r"(C:\\Users\\locca\\Documents\\Xuân Lộc\\VILAS\\Final project\\PBI Exersice\\inventory.csv)")
+
+sku <- read.csv(r"(C:\\Users\\locca\\Documents\\Xuân Lộc\\VILAS\\Final project\\PBI Exersice\\sku.csv)")
+
+warehouse<- read.csv(r"(C:\\Users\\locca\\Documents\\Xuân Lộc\\VILAS\\Final project\\PBI Exersice\\warehouse.csv)")
+
+dailydemand<- read.csv(r"(C:\\Users\\locca\\Documents\\Xuân Lộc\\VILAS\\Final project\\PBI Exersice\\DailyDemand and Variance.csv)")
+
+
+
+##Rank SKUs:
+library(plyr)
+df <- ddply(ABC_analyst, 
+            .(SKU), 
+            summarise, 
+            Revenue = sum(Quantity*NetAmount)) # summarise the revenue
+
+df.summary <- within(df, {
+    Percent.Revenue <- cumsum(rev(sort(Revenue)))/sum(Revenue)
+    ABC <- ifelse(Percent.Revenue > 0.91, "A",
+           ifelse(Percent.Revenue < 0.81, "B", "C"))
+})
+```

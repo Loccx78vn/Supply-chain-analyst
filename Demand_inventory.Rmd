@@ -72,15 +72,17 @@ demand_training<-ts(training_df$month_demand,
                       start = c(2012,1))
 demand_full<-ts(df1$month_demand,
                 frequency = 12,
-                      start = c(2012,1))
-
+                start = c(2012,1))
 ```
 
 ```{r}
 #Decompose the time object into 3 components: trend, seasonal, random
-p<-decompose(demand_training)
+demand_diff<-diff(demand_training,1)/demand_training
 
-plot(p)
+demand_diff_full<-diff(demand_full,1)/demand_full
+
+                      
+plot(decompose(demand_diff))
 ```
 
 ## 2.PACF and ACF analyst:
@@ -89,7 +91,7 @@ plot(p)
 #Check stationary assumption:
 m = c(1:3)
 lapply(m, function(x) {
-         a<-diff(log(demand_training), lag = x)
+         a<-diff(demand_training, lag = x)/demand_training
          tseries::adf.test(a)$p.value}
        ) #p<0,05 is accepted
 #So the value accepted is lag 1 or 2. It suggested that we should use 1 lag or 2 lag time series of diff(log(demand_components))
@@ -97,8 +99,8 @@ lapply(m, function(x) {
 
 ```{r}
 #Rename of two time series:
-ts1<-diff(log(demand_training),1)
-ts2<-diff(log(demand_training),2)
+ts1<-diff(demand_training, lag = 1)/demand_training
+ts2<-diff(demand_training, lag = 2)/demand_training
 #Plot value ACF for 2 series:
 library(forecast)
 p1<-Acf(ts1,plot =F)
@@ -121,7 +123,7 @@ model<-auto.arima(ts1,trace = T) #We will choose model (0,1,1)
 ### 3.2.Compare the training model to test value:
 ```{r}
 #Create model for training data:
-model_training<-Arima(demand_training, 
+model_training<-Arima(ts1, 
              order = c(model[["arma"]][c(1,2,6)]),
              seasonal = list(order = c(model[["arma"]][c(3,4,7)]),period = model[["arma"]][5]), 
              include.drift = FALSE)
@@ -129,14 +131,15 @@ model_training<-Arima(demand_training,
 training_forecast<-forecast(model_training,h = 21)
 
 #Calculate RMSE:
-accuracy(training_forecast,testing_df$month_demand)
+accuracy(training_forecast,
+         diff(testing_df$month_demand,1)/testing_df$month_demand)
 
 #Use chart for presenting the differents:
 plot(training_forecast,
-      main = "Model ARIMA(2,0,0)(1,0,0)[12]",
+      main = "Model ARIMA(2,0,0)",
       xlab = "Time",
       ylab = "Order Demand")
-lines(demand_full, 
+lines(demand_diff_full, 
       col = "red",
       lwd = "2")
 legend("topleft",
@@ -144,17 +147,16 @@ legend("topleft",
        col = c("red","blue"),
        box.lty = 0,
        lty = 1,
-       cex = 1.5,
+       cex = 1,
        lwd = 2)
 ```
-
 This plot above show that all the predicted value is surrounds the actual value in 95%.
 
-So we will choose model 'ARIMA(2,0,0)(1,1,0)[12]' to predict the future value for demand_full object.
+So we will choose model 'ARIMA(2,0,0)' to predict the future value for demand_full object.
   
 ```{r}
 #Modeling demand product by arima model:
-fit <- Arima(demand_full, 
+fit <- Arima(demand_diff_full, 
              order = c(model[["arma"]][c(1,2,6)]),
              seasonal = list(order = c(model[["arma"]][c(3,4,7)]),period = model[["arma"]][5]), 
              include.drift = FALSE)
